@@ -1,0 +1,1 @@
+Extracting images in PDFs and replacing them with the filepath they're saved to with PyMuPDF

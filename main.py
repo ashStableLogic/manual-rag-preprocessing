@@ -21,50 +21,46 @@ def process_pdf_images(
 
     for page_index, page in enumerate(doc):
 
+        page.clean_contents()
+
         page_name = f"page {page_index+1}"
 
-        image_refs = page.get_images(full=True)
+        page_blocks = page.get_text("dict", sort=True)["blocks"]
 
-        if image_refs:
-            print(f"{len(image_refs)} image(s) found on page {page_index+1}")
+        print(page_blocks)
+
+        image_blocks = [
+            block
+            for block in page.get_text("dict", sort=True)["blocks"]
+            if block["type"] == 1
+        ]
+
+        if image_blocks:
+            print(f"{len(image_blocks)} image(s) found on page {page_index+1}")
             os.makedirs(output_image_folder_path + SEP + page_name, exist_ok=True)
         else:
             print(f"No images on page {page_index+1}")
 
-        for image_index, image_ref in enumerate(image_refs):
+        for image_index, image_block in enumerate(image_blocks):
 
-            image_name = page_name + SEP + f"image {image_index+1}"
+            # print(
+            #     {key: image_block[key] for key in image_block.keys() if key != "image"}
+            # )
+
+            image_name = page_name + SEP + f"image {image_index+1}.png"
 
             image_file_name = output_image_folder_name + SEP + image_name
             image_file_path = os.path.abspath(image_file_name)
 
-            xref = image_ref[0]
-            pix = pymupdf.Pixmap(doc, xref)
+            image_bbox = image_block["bbox"]
+            image_data = image_block["image"]
 
-            page.clean_contents()
-            bbox = page.get_image_bbox(image_ref)
-            # rects = page.get_image_rects(image_ref)
+            with open(image_file_path, "wb") as file:
+                file.write(image_data)
 
-            if pix.n - pix.alpha > 3:  # CMYK: convert to RGB first
-                pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
+            page.add_redact_annot(image_bbox, text=image_file_name)
 
-            pix.save(f"{image_file_path}.png")
-
-            if bbox == DEAD_RECT:
-                rects = page.get_image_rects(image_ref)
-                for rect in rects:
-                    page.add_redact_annot(rect, text=image_file_name)
-                    print(
-                        f"Applying annotation for page {page_index+1}, image {image_index+1} at rect {rect}"
-                    )
-            else:
-                print(
-                    f"Applying annotation for page {page_index+1}, image {image_index+1} at bbox {bbox}"
-                )
-
-                page.add_redact_annot(bbox, text=image_file_name)
-
-            page.apply_redactions()
+        page.apply_redactions()
 
     doc.save(output_file_path)
 

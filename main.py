@@ -30,6 +30,15 @@ def process_pdf_images(
             if block["type"] == 1
         ]
 
+        ##Second pass to get rid of images that are too small
+
+        image_blocks = [
+            image_block
+            for image_block in image_blocks
+            if image_block["image"]["height"] > MIN_IMAGE_HEIGHT
+            and image_block["image"]["width"] > MIN_IMAGE_WIDTH
+        ]
+
         if image_blocks:
             print(f"{len(image_blocks)} image(s) found on page {page_index+1}")
             os.makedirs(output_image_folder_path + SEP + page_name, exist_ok=True)
@@ -37,12 +46,6 @@ def process_pdf_images(
             print(f"No images on page {page_index+1}")
 
         for image_index, image_block in enumerate(image_blocks):
-
-            image_height = image_block["height"]
-            image_width = image_block["width"]
-
-            if image_height < MIN_IMAGE_HEIGHT or image_width < MIN_IMAGE_WIDTH:
-                continue
 
             image_name = page_name + SEP + f"image {image_index+1}.png"
 

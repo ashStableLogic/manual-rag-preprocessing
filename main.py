@@ -72,6 +72,7 @@ def process_pdf_images(
 def main(args):
     manuals_folder = os.path.abspath(args.manuals_folder)
     redo = args.redo_processed_manuals
+    output_folder_prefix = args.output_folder
 
     manual_filenames = [
         file
@@ -85,9 +86,13 @@ def main(args):
         manual_name = manual_filename.split(".")[0]
         manual_path = os.path.abspath(f"./manuals/{manual_filename}")
 
-        output_folder_name = "output" + SEP + manual_name
-        output_file_name = "output" + SEP + manual_name + SEP + manual_filename
-        output_images_folder_name = f"output" + SEP + manual_name + SEP + "images"
+        output_folder_name = output_folder_prefix + SEP + manual_name
+        output_file_name = (
+            output_folder_prefix + SEP + manual_name + SEP + manual_filename
+        )
+        output_images_folder_name = (
+            output_folder_prefix + SEP + manual_name + SEP + "images"
+        )
 
         output_folder_path = os.path.abspath(output_folder_name)
         output_file_path = os.path.abspath(output_file_name)
@@ -121,6 +126,10 @@ if __name__ == "__main__":
         dest="redo_processed_manuals",
         type=bool,
         default=False,
+    )
+
+    parser.add_argument(
+        "-o", "--output-folder", dest="output_folder", type=str, default="output"
     )
 
     args = parser.parse_args()

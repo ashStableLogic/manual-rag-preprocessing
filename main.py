@@ -21,18 +21,19 @@ def process_pdf_images(
 
         page.clean_contents()
 
-        page_name = f"page_{page_index+1}"
+        page_name = f"page {page_index+1}"
 
         image_refs = page.get_images(full=True)
 
         if image_refs:
             print(f"{len(image_refs)} image(s) found on page {page_index+1}")
+            os.makedirs(output_image_folder_path + SEP + page_name, exist_ok=True)
         else:
             print(f"No images on page {page_index+1}")
 
         for image_index, image_ref in enumerate(image_refs):
 
-            image_name = page_name + f"_image_{image_index+1}"
+            image_name = page_name + SEP + f"image {image_index+1}"
 
             image_file_name = output_image_folder_name + SEP + image_name
             image_file_path = os.path.abspath(image_file_name)

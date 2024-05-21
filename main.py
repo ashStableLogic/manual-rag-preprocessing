@@ -5,6 +5,8 @@ from argparse import ArgumentParser
 
 SEP = "\\"
 
+DEAD_RECT = pymupdf.Rect(1.0, 1.0, -1.0, -1.0)
+
 
 def process_pdf_images(
     manual_path,
@@ -18,8 +20,6 @@ def process_pdf_images(
     doc = pymupdf.open(manual_path)
 
     for page_index, page in enumerate(doc):
-
-        page.clean_contents()
 
         page_name = f"page {page_index+1}"
 
@@ -40,14 +40,29 @@ def process_pdf_images(
 
             xref = image_ref[0]
             pix = pymupdf.Pixmap(doc, xref)
+
+            page.clean_contents()
             bbox = page.get_image_bbox(image_ref)
+            # rects = page.get_image_rects(image_ref)
 
             if pix.n - pix.alpha > 3:  # CMYK: convert to RGB first
                 pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
 
             pix.save(f"{image_file_path}.png")
 
-            page.add_redact_annot(bbox, text=image_file_name)
+            if bbox == DEAD_RECT:
+                rects = page.get_image_rects(image_ref)
+                for rect in rects:
+                    page.add_redact_annot(rect, text=image_file_name)
+                    print(
+                        f"Applying annotation for page {page_index+1}, image {image_index+1} at rect {rect}"
+                    )
+            else:
+                print(
+                    f"Applying annotation for page {page_index+1}, image {image_index+1} at bbox {bbox}"
+                )
+
+                page.add_redact_annot(bbox, text=image_file_name)
 
             page.apply_redactions()
 

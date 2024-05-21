@@ -5,14 +5,13 @@ from argparse import ArgumentParser
 
 SEP = "\\"
 
-DEAD_RECT = pymupdf.Rect(1.0, 1.0, -1.0, -1.0)
+MIN_IMAGE_HEIGHT = 30
+MIN_IMAGE_WIDTH = 30
 
 
 def process_pdf_images(
     manual_path,
     output_file_path,
-    output_folder_name,
-    output_folder_path,
     output_image_folder_name,
     output_image_folder_path,
 ):
@@ -24,10 +23,6 @@ def process_pdf_images(
         page.clean_contents()
 
         page_name = f"page {page_index+1}"
-
-        page_blocks = page.get_text("dict", sort=True)["blocks"]
-
-        print(page_blocks)
 
         image_blocks = [
             block
@@ -43,9 +38,11 @@ def process_pdf_images(
 
         for image_index, image_block in enumerate(image_blocks):
 
-            # print(
-            #     {key: image_block[key] for key in image_block.keys() if key != "image"}
-            # )
+            image_height = image_block["height"]
+            image_width = image_block["width"]
+
+            if image_height < MIN_IMAGE_HEIGHT or image_width < MIN_IMAGE_WIDTH:
+                continue
 
             image_name = page_name + SEP + f"image {image_index+1}.png"
 
@@ -103,8 +100,6 @@ def main(args):
             process_pdf_images(
                 manual_path,
                 output_file_path,
-                output_folder_name,
-                output_folder_path,
                 output_images_folder_name,
                 output_images_folder_path,
             )

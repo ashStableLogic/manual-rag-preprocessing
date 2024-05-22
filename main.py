@@ -1,17 +1,14 @@
 import os
 
 import numpy as np
-from PIL import Image
 
 import pymupdf
 
-import layoutparser as lp
-
 from argparse import ArgumentParser
 
-###IMAGE EXTRACTION CONSTS
-MIN_IMAGE_HEIGHT = 30
-MIN_IMAGE_WIDTH = 30
+###EXTRACTION MINIMUM PX SIZES
+MIN_PX_HEIGHT = 30
+MIN_PX_WIDTH = 30
 
 ###FIGURE EXTRACTION CONSTS
 ZOOM_X, ZOOM_Y = 2.0, 2.0  # This stops image resolution from being quartered
@@ -19,22 +16,6 @@ ZOOM_MAT = pymupdf.Matrix(ZOOM_X, ZOOM_Y)
 
 FIGURE_X_GROUPING_ADJACENCY_PX = 3
 FIGURE_Y_GROUPING_ADJACENCY_PX = 3
-
-###DETECTRON2 CONSTS
-DETECTRON_CONFIG = "lp://PubLayNet/mask_rcnn_X_101_32x8d_FPN_3x/config"
-DETECTRON_EXTRA_CONFIG = [
-    "MODEL.ROI_HEADS.SCORE_THRESH_TEST",
-    0.7,
-    "MODEL.DEVICE",
-    "cpu",
-]
-DETECTRON_CONFIG_LABELS = {
-    0: "Text",
-    1: "Title",
-    2: "List",
-    3: "Table",
-    4: "Figure",
-}
 
 
 def pixmap_2_numpy_array(pixmap):
@@ -77,8 +58,7 @@ def process_pdf_images(page, page_index, relative_image_folder_path):
     image_blocks = [
         image_block
         for image_block in image_blocks
-        if image_block["height"] > MIN_IMAGE_HEIGHT
-        and image_block["width"] > MIN_IMAGE_WIDTH
+        if image_block["height"] > MIN_PX_HEIGHT and image_block["width"] > MIN_PX_WIDTH
     ]
 
     if image_blocks:
@@ -107,7 +87,9 @@ def process_pdf_images(page, page_index, relative_image_folder_path):
         with open(absolute_image_file_path, "wb") as file:
             file.write(image_data)
 
-        page.add_redact_annot(image_bbox, text=relative_image_file_path)
+        page.add_redact_annot(
+            image_bbox, text=relative_image_file_path, cross_out=False
+        )
 
     return page
 
@@ -116,7 +98,11 @@ def process_pdf_figures(page, page_index, relative_figure_folder_path):
 
     page_name = f"page {page_index+1}"
 
-    figures = page.cluster_drawings()
+    figures = [
+        figure
+        for figure in page.cluster_drawings()
+        if figure.height > MIN_PX_HEIGHT and figure.width > MIN_PX_WIDTH
+    ]
 
     if figures:
         print(f"{len(figures)} figures(s) found on page {page_index+1}")
@@ -139,87 +125,11 @@ def process_pdf_figures(page, page_index, relative_figure_folder_path):
         absolute_figure_file_path = os.path.abspath(relative_figure_file_path)
 
         figure_pixmap = page.get_pixmap(matrix=ZOOM_MAT, clip=figure)
+        # figure_pixmap = page.get_pixmap(clip=figure)
 
         figure_pixmap.pil_save(absolute_figure_file_path)
 
-        page.add_redact_annot(figure, text=relative_figure_file_path)
-
-    return page
-
-
-def process_pdf_figures_with_detectron(
-    page, page_index, relative_figure_folder_path, layout_model
-):
-    """Gets around not being able to convert a
-    drawing to an image directly by copying the image
-    into a temporary document and creating a Pixmap from that
-
-    Args:
-        page (pymupdf.Page): Given page
-        page_index (int): Index of given page
-        relative_image_folder_path (str): Relative path of drawing output folder
-
-    Returns:
-        Page: Given page with redactions made, but not applied
-    """
-
-    page_name = f"page {page_index+1}"
-
-    drawings = page.get_drawings()
-
-    if drawings:
-        page_pixmap = page.get_pixmap(matrix=ZOOM_MAT)
-
-        page_array = pixmap_2_numpy_array(page_pixmap)
-
-        layout_results = layout_model.detect(page_array)
-
-        figure_blocks = [block for block in layout_results if block.type == "Figure"]
-
-        if figure_blocks:
-            print(f"{len(figure_blocks)} figure(s) on page {page_index+1}")
-
-            relative_page_path = os.path.join(relative_figure_folder_path, page_name)
-            absolute_page_path = os.path.abspath(relative_page_path)
-
-            os.makedirs(absolute_page_path, exist_ok=True)
-        else:
-            print(f"No figures in page {page_index+1}")
-            return page
-    else:
-        print(f"No figures in page {page_index+1}")
-        return page
-
-    for figure_block_index, figure_block in enumerate(figure_blocks):
-        figure_name = f"image {figure_block_index+1}.png"
-
-        relative_figure_file_path = os.path.join(
-            relative_figure_folder_path, page_name, figure_name
-        )
-        absolute_figure_file_path = os.path.abspath(relative_figure_file_path)
-
-        # page_array_to_save = Image.fromarray(page_array.astype("uint8"), "RGB")
-        # page_array_to_save.save(
-        #     "/home/ash/projects/manual-rag-preprocessing/test_output/CDJ-3000_manual_EN_ONE_PAGE/page_array.png"
-        # )
-
-        cropped_figure = figure_block.crop_image(page_array)
-
-        cropped_figure_image = Image.fromarray(cropped_figure.astype("uint8"), "RGB")
-
-        cropped_figure_image.save(absolute_figure_file_path)
-
-        ###Going from layout parser to pymupdf positional naming scheme
-        figure_block_position = figure_block.block
-        x_0 = (figure_block_position.x_1 / ZOOM_X) + 1
-        y_0 = (figure_block_position.y_1 / ZOOM_Y) + 1
-        x_1 = (figure_block_position.x_2 / ZOOM_X) + 1
-        y_1 = (figure_block_position.y_2 / ZOOM_Y) + 1
-
-        drawing_rect = pymupdf.Rect(x_0, y_0, x_1, y_1)
-        # drawing_rect = figure.to_rectangle()
-
-        page.add_redact_annot(drawing_rect, text=relative_figure_file_path)
+        page.add_redact_annot(figure, text=relative_figure_file_path, cross_out=False)
 
     return page
 
@@ -230,12 +140,6 @@ def process_pdf_pages(
     output_file_path,
     relative_output_folder_path,
 ):
-
-    layout_model = lp.Detectron2LayoutModel(
-        DETECTRON_CONFIG,
-        extra_config=DETECTRON_EXTRA_CONFIG,
-        label_map=DETECTRON_CONFIG_LABELS,
-    )
 
     relative_image_folder_path = os.path.join(relative_output_folder_path, "images")
 
@@ -249,16 +153,7 @@ def process_pdf_pages(
 
         page = process_pdf_images(page, page_index, relative_image_folder_path)
 
-        # process_pdf_figures uses computer vision to separate actual figures
-        # from superfluous drawings and find their positional boundaries
-        # VERY SLOW ON COMPANY LAPTOPS
-
-        # (if you have a cuda-enabled gpu handy and have built detectron2
-        # with it in mind, remove the MODEL.DEVICE and cpu strings from
-        # the extra detectron config const)
-        # page = process_pdf_figures_with_detectron(
-        #     page, page_index, relative_figure_folder_path, layout_model
-        # )
+        page.apply_redactions(1, 2, 1)
 
         page = process_pdf_figures(page, page_index, relative_figure_folder_path)
 
@@ -275,7 +170,6 @@ def main(args):
     manuals_folder = args.manuals_folder
     redo = args.redo_processed_manuals
     output_folder_prefix = args.output_folder
-    temp_folder = args.temp_folder
 
     manual_filenames = [
         file

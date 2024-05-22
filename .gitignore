@@ -9,3 +9,5 @@ test_manuals
 extract_one_pdf_page.py
 test_output
 *.zip*
+*Zone.Identifier
+document-loader.py

@@ -40,7 +40,36 @@ def get_class_leaves(cls: object) -> list[object]:
 
 class Extractor(ABC):
 
-    def extract(self, document: pymupdf.Document) -> pymupdf.Document:
+    @abstractmethod
+    def run(self, document: pymupdf.Document):
+        raise NotImplementedError("Implement run method")
+
+
+class Fetcher(Extractor):
+
+    def run(self, document: pymupdf.Document):
+        rtn = []
+
+        for page in enumerate(document):
+            rtn.append(self.fetch(page))
+
+        return rtn
+
+    @abstractmethod
+    def fetch(self, page: pymupdf.Page):
+        raise NotImplementedError("Implement this class' fetch method")
+
+
+class TextFetcher(Fetcher):
+
+    def fetch(self, page: pymupdf.Page):
+
+        pass
+
+
+class Redactor(Extractor):
+
+    def run(self, document: pymupdf.Document) -> pymupdf.Document:
         """Iterates through document pages, extracting object type from them
 
         Args:
@@ -53,9 +82,6 @@ class Extractor(ABC):
             self.save_and_redact(page, page_index)
 
         return document
-
-
-class Redactor(Extractor):
 
     @abstractmethod
     def save_and_redact(self, page: pymupdf.Page, save_path: str) -> pymupdf.Page:
@@ -193,13 +219,6 @@ class FigureRedactor(Redactor):
         return page
 
 
-class TextExtractor(Extractor):
-
-    def __init__(self):
-
-        pass
-
-
 class PdfChunker(object):
 
     def __init__(self, args):
@@ -207,7 +226,7 @@ class PdfChunker(object):
         self.redo = args.redo_processed_manuals
         self.output_folder_prefix = args.output_folder
 
-        self.extractor_types = get_class_leaves(Extractor)
+        self.redactor_classes = get_class_leaves(Redactor)
 
     def set_file_paths(
         self, relative_document_path: str, document_filename: str
@@ -244,13 +263,13 @@ class PdfChunker(object):
 
             document = pymupdf.open(self.absolute_document_path)
 
-            extractors = [
+            redactors = [
                 cls.__init__(self.relative_output_folder_path)
-                for cls in self.extractor_types
+                for cls in self.redactor_classes
             ]
 
-            for extractor in extractors:
-                extractor.extract(document)
+            for redactors in redactors:
+                redactors.run(document)
 
             document.save(self.absolute_finished_document_path)
         else:

@@ -1,74 +1,239 @@
 import os
 
+import numpy as np
+from PIL import Image
+
 import pymupdf
+
+import layoutparser as lp
+
 from argparse import ArgumentParser
 
-SEP = "\\"
-
+###IMAGE EXTRACTION CONSTS
 MIN_IMAGE_HEIGHT = 30
 MIN_IMAGE_WIDTH = 30
 
+###FIGURE EXTRACTION CONSTS
+ZOOM_X, ZOOM_Y = 2.0, 2.0  # This stops image resolution from being quartered
+ZOOM_MAT = pymupdf.Matrix(ZOOM_X, ZOOM_Y)
 
-def process_pdf_images(
+###DETECTRON2 CONSTS
+DETECTRON_CONFIG = "lp://PubLayNet/mask_rcnn_X_101_32x8d_FPN_3x/config"
+DETECTRON_EXTRA_CONFIG = [
+    "MODEL.ROI_HEADS.SCORE_THRESH_TEST",
+    0.7,
+    "MODEL.DEVICE",
+    "cpu",
+]
+DETECTRON_CONFIG_LABELS = {
+    0: "Text",
+    1: "Title",
+    2: "List",
+    3: "Table",
+    4: "Figure",
+}
+
+
+def pixmap_2_numpy_array(pixmap):
+    pixmap_height = pixmap.height
+    pixmap_width = pixmap.width
+    pixmap_channels = pixmap.n
+
+    np_image = np.frombuffer(pixmap.samples, dtype=np.uint8).reshape(
+        pixmap_height, pixmap_width, pixmap_channels
+    )
+
+    np.ascontiguousarray(np_image[..., [2, 1, 0]])
+
+    return np_image
+
+
+def process_pdf_images(page, page_index, relative_image_folder_path):
+    """Extracts images on a given page and redacts them with the path
+    they are saved to
+
+    Args:
+        page (pymupdf.Page): Given page
+        page_index (int): Index of given page
+        relative_image_folder_path (str): Relative path of extracted image save location
+
+    Returns:
+        Page: Given page with redactions made, but not applied
+    """
+
+    page_name = f"page {page_index+1}"
+
+    image_blocks = [
+        block
+        for block in page.get_text("dict", sort=True)["blocks"]
+        if block["type"] == 1
+    ]
+
+    ##Second pass to get rid of images that are too small
+
+    image_blocks = [
+        image_block
+        for image_block in image_blocks
+        if image_block["height"] > MIN_IMAGE_HEIGHT
+        and image_block["width"] > MIN_IMAGE_WIDTH
+    ]
+
+    if image_blocks:
+        print(f"{len(image_blocks)} image(s) found on page {page_index+1}")
+
+        relative_page_path = os.path.join(relative_image_folder_path, page_name)
+        absolute_page_path = os.path.abspath(relative_page_path)
+
+        os.makedirs(absolute_page_path, exist_ok=True)
+    else:
+        print(f"No images on page {page_index+1}")
+        return page
+
+    for image_index, image_block in enumerate(image_blocks):
+
+        image_name = f"image {image_index+1}.png"
+
+        relative_image_file_path = os.path.join(
+            relative_image_folder_path, page_name, image_name
+        )
+        absolute_image_file_path = os.path.abspath(relative_image_file_path)
+
+        image_bbox = image_block["bbox"]
+        image_data = image_block["image"]
+
+        with open(absolute_image_file_path, "wb") as file:
+            file.write(image_data)
+
+        page.add_redact_annot(image_bbox, text=relative_image_file_path)
+
+    return page
+
+
+def process_pdf_figures(page, page_index, relative_figure_folder_path, layout_model):
+    """Gets around not being able to convert a
+    drawing to an image directly by copying the image
+    into a temporary document and creating a Pixmap from that
+
+    Args:
+        page (pymupdf.Page): Given page
+        page_index (int): Index of given page
+        relative_image_folder_path (str): Relative path of drawing output folder
+
+    Returns:
+        Page: Given page with redactions made, but not applied
+    """
+
+    page_name = f"page {page_index+1}"
+
+    drawings = page.get_drawings()
+
+    if drawings:
+        page_pixmap = page.get_pixmap(matrix=ZOOM_MAT)
+
+        page_array = pixmap_2_numpy_array(page_pixmap)
+
+        layout_results = layout_model.detect(page_array)
+
+        figure_blocks = [block for block in layout_results if block.type == "Figure"]
+
+        if figure_blocks:
+            print(f"{len(figure_blocks)} figure(s) on page {page_index+1}")
+
+            relative_page_path = os.path.join(relative_figure_folder_path, page_name)
+            absolute_page_path = os.path.abspath(relative_page_path)
+
+            os.makedirs(absolute_page_path, exist_ok=True)
+        else:
+            print(f"No figures in page {page_index+1}")
+            return page
+    else:
+        print(f"No figures in page {page_index+1}")
+        return page
+
+    for figure_block_index, figure_block in enumerate(figure_blocks):
+        figure_name = f"image {figure_block_index+1}.png"
+
+        relative_figure_file_path = os.path.join(
+            relative_figure_folder_path, page_name, figure_name
+        )
+        absolute_figure_file_path = os.path.abspath(relative_figure_file_path)
+
+        # page_array_to_save = Image.fromarray(page_array.astype("uint8"), "RGB")
+        # page_array_to_save.save(
+        #     "/home/ash/projects/manual-rag-preprocessing/test_output/CDJ-3000_manual_EN_ONE_PAGE/page_array.png"
+        # )
+
+        cropped_figure = figure_block.crop_image(page_array)
+
+        cropped_figure_image = Image.fromarray(cropped_figure.astype("uint8"), "RGB")
+
+        cropped_figure_image.save(absolute_figure_file_path)
+
+        ###Going from layout parser to pymupdf positional naming scheme
+        figure_block_position = figure_block.block
+        x_0 = (figure_block_position.x_1 / ZOOM_X) + 1
+        y_0 = (figure_block_position.y_1 / ZOOM_Y) + 1
+        x_1 = (figure_block_position.x_2 / ZOOM_X) + 1
+        y_1 = (figure_block_position.y_2 / ZOOM_Y) + 1
+
+        drawing_rect = pymupdf.Rect(x_0, y_0, x_1, y_1)
+        # drawing_rect = figure.to_rectangle()
+
+        page.add_redact_annot(drawing_rect, text=relative_figure_file_path)
+
+    return page
+
+
+def process_pdf_pages(
+    manual_name,
     manual_path,
     output_file_path,
-    output_image_folder_name,
-    output_image_folder_path,
+    relative_output_folder_path,
 ):
 
-    doc = pymupdf.open(manual_path)
+    layout_model = lp.Detectron2LayoutModel(
+        DETECTRON_CONFIG,
+        extra_config=DETECTRON_EXTRA_CONFIG,
+        label_map=DETECTRON_CONFIG_LABELS,
+    )
 
-    for page_index, page in enumerate(doc):
+    relative_image_folder_path = os.path.join(relative_output_folder_path, "images")
+
+    relative_drawing_folder_path = os.path.join(relative_output_folder_path, "figures")
+
+    write_doc = pymupdf.open(manual_path)
+
+    for page_index, page in enumerate(write_doc):
 
         page.clean_contents()
 
-        page_name = f"page {page_index+1}"
+        page = process_pdf_images(page, page_index, relative_image_folder_path)
 
-        image_blocks = [
-            block
-            for block in page.get_text("dict", sort=True)["blocks"]
-            if block["type"] == 1
-        ]
+        # process_pdf_figures uses computer vision to separate actual figures
+        # from superfluous drawings and find their positional boundaries
+        # VERY SLOW ON COMPANY LAPTOPS
 
-        ##Second pass to get rid of images that are too small
+        # (if you have a cuda-enabled gpu handy and have built detectron2
+        # with it in mind, remove the MODEL.DEVICE and cpu strings from
+        # the extra detectron config const)
+        page = process_pdf_figures(
+            page, page_index, relative_drawing_folder_path, layout_model
+        )
 
-        image_blocks = [
-            image_block
-            for image_block in image_blocks
-            if image_block["image"]["height"] > MIN_IMAGE_HEIGHT
-            and image_block["image"]["width"] > MIN_IMAGE_WIDTH
-        ]
+        print()
 
-        if image_blocks:
-            print(f"{len(image_blocks)} image(s) found on page {page_index+1}")
-            os.makedirs(output_image_folder_path + SEP + page_name, exist_ok=True)
-        else:
-            print(f"No images on page {page_index+1}")
+        page.apply_redactions(1, 2, 1)
 
-        for image_index, image_block in enumerate(image_blocks):
+    write_doc.save(output_file_path)
 
-            image_name = page_name + SEP + f"image {image_index+1}.png"
-
-            image_file_name = output_image_folder_name + SEP + image_name
-            image_file_path = os.path.abspath(image_file_name)
-
-            image_bbox = image_block["bbox"]
-            image_data = image_block["image"]
-
-            with open(image_file_path, "wb") as file:
-                file.write(image_data)
-
-            page.add_redact_annot(image_bbox, text=image_file_name)
-
-        page.apply_redactions()
-
-    doc.save(output_file_path)
+    return
 
 
 def main(args):
-    manuals_folder = os.path.abspath(args.manuals_folder)
+    manuals_folder = args.manuals_folder
     redo = args.redo_processed_manuals
     output_folder_prefix = args.output_folder
+    temp_folder = args.temp_folder
 
     manual_filenames = [
         file
@@ -80,32 +245,30 @@ def main(args):
 
     for manual_filename in manual_filenames:
         manual_name = manual_filename.split(".")[0]
-        manual_path = os.path.abspath(f"./manuals/{manual_filename}")
 
-        output_folder_name = output_folder_prefix + SEP + manual_name
-        output_file_name = (
-            output_folder_prefix + SEP + manual_name + SEP + manual_filename
+        relative_manual_path = os.path.join(manuals_folder, manual_filename)
+        absolute_manual_path = os.path.abspath(relative_manual_path)
+
+        relative_output_folder_path = os.path.join(output_folder_prefix, manual_name)
+        relative_output_file_path = os.path.join(
+            output_folder_prefix, manual_name, manual_filename
         )
-        output_images_folder_name = (
-            output_folder_prefix + SEP + manual_name + SEP + "images"
-        )
 
-        output_folder_path = os.path.abspath(output_folder_name)
-        output_file_path = os.path.abspath(output_file_name)
-        output_images_folder_path = os.path.abspath(output_images_folder_name)
+        absolute_output_folder_path = os.path.abspath(relative_output_folder_path)
 
-        if not os.path.exists(os.path.abspath(output_folder_name)) or redo:
-            print(f"processing {manual_name}")
+        if not os.path.exists(absolute_output_folder_path) or redo:
+            print(f"========processing {manual_name}========")
 
-            os.makedirs(output_folder_path, exist_ok=True)
-            os.makedirs(output_images_folder_path, exist_ok=True)
+            os.makedirs(absolute_output_folder_path, exist_ok=True)
 
-            process_pdf_images(
-                manual_path,
-                output_file_path,
-                output_images_folder_name,
-                output_images_folder_path,
+            process_pdf_pages(
+                manual_name,
+                absolute_manual_path,
+                relative_output_file_path,
+                relative_output_folder_path,
             )
+
+    return
 
 
 if __name__ == "__main__":
@@ -124,6 +287,10 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "-o", "--output-folder", dest="output_folder", type=str, default="output"
+    )
+
+    parser.add_argument(
+        "-t", "--temp-folder", dest="temp_folder", type=str, default="temp"
     )
 
     args = parser.parse_args()

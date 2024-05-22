@@ -4,3 +4,8 @@
 /main image blocks.py
 /xref output
 /block output
+/temp
+test_manuals
+extract_one_pdf_page.py
+test_output
+*.zip*

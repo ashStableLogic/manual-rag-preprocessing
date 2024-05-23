@@ -340,6 +340,12 @@ def main(args):
 
 
 if __name__ == "__main__":
+    """USAGE IS
+    python main.py
+    -d "Path to single document or folder"
+    -r "add switch if you want to redo already processed documents"
+    -o "output folder path"
+    """
 
     parser = argparse.ArgumentParser()
 
@@ -354,10 +360,6 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "-o", "--output-folder", dest="output_folder", type=str, default="output"
-    )
-
-    parser.add_argument(
-        "-t", "--temp-folder", dest="temp_folder", type=str, default="temp"
     )
 
     args = parser.parse_args()

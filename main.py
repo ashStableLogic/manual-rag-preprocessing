@@ -6,8 +6,10 @@ import numpy as np
 
 import pymupdf
 
+# I don't have any openAI keys,
+# so I used the HuggingFace embedder as a placeholder
 from langchain.text_splitter import CharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings as Embedder
 
 import argparse
 
@@ -226,7 +228,7 @@ class FigureRedactor(Redactor):
         return page
 
 
-class PdfChunker(object):
+class PdfEmbedder(object):
 
     def __init__(self, args):
         self.documents = args.documents
@@ -239,7 +241,7 @@ class PdfChunker(object):
             separator="\n", chunk_size=1000, chunk_overlap=200, length_function=len
         )
 
-        self.embedder = HuggingFaceEmbeddings()
+        self.embedder = Embedder()
 
     def set_file_paths(
         self, relative_document_path: str, document_filename: str
@@ -308,6 +310,11 @@ class PdfChunker(object):
 
         # TODO: Add embedding and DB write - bulk of work is done though
 
+        # for chunk in chunks:
+        #     embedded_vector=self.embedder.embed_query(chunk)
+
+        #     #Write chunk to DB
+
         return
 
     def run(self):
@@ -327,9 +334,9 @@ class PdfChunker(object):
 
 def main(args):
 
-    pdf_chunker = PdfChunker(args)
+    pdf_embedder = PdfEmbedder(args)
 
-    pdf_chunker.run()
+    pdf_embedder.run()
 
 
 if __name__ == "__main__":

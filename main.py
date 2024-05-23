@@ -5,11 +5,17 @@ import os
 import numpy as np
 
 import pymupdf
+import pymupdf4llm
 
 # I don't have any openAI keys,
 # so I used the HuggingFace embedder as a placeholder
-from langchain.text_splitter import CharacterTextSplitter
+# from langchain.text_splitter import CharacterTextSplitter as TextSplitter
+
+from langchain.text_splitter import CharacterTextSplitter as TextSplitter
+
 from langchain_community.embeddings import HuggingFaceEmbeddings as Embedder
+
+import psycopg2
 
 import argparse
 
@@ -228,6 +234,38 @@ class FigureRedactor(Redactor):
         return page
 
 
+class DB(object):
+
+    def __init__(self):
+        self.embedder = Embedder()
+
+        # self.db_connection = psycopg2.connect(
+        #     host="localhost", database="db", user="user", password="password"
+        # )
+        # self.cursor = self.db_connection.cursor()
+
+        self.text_splitter = TextSplitter(
+            separator="\n", chunk_size=1000, chunk_overlap=200, length_function=len
+        )
+
+    def store_text(self, sub_documents, document_name) -> None:
+
+        # insert_query = "INSERT INTO service_manuals_file (file_name) VALUES (%s);"
+        # data_to_insert = (document_name,)
+        # self.cursor.execute(insert_query, data_to_insert)
+        # self.db_connection.commit()
+
+        chunks = self.text_splitter.split_text(sub_documents)
+
+        for chunk in chunks:
+            # embedding = self.embedder.embed_documents(chunk)
+            # insert_query = "INSERT INTO service_manuals_file_data (service_manuals_file_id, text, embedding) VALUES (%s, %s, %s);"
+            # data_to_insert = (document_name, chunk, embedding)
+            # self.cursor.execute(insert_query, data_to_insert)
+
+            pass
+
+
 class PdfEmbedder(object):
 
     def __init__(self, args):
@@ -237,11 +275,7 @@ class PdfEmbedder(object):
 
         self.text_fetcher = TextFetcher()
 
-        self.text_splitter = CharacterTextSplitter(
-            separator="\n", chunk_size=1000, chunk_overlap=200, length_function=len
-        )
-
-        self.embedder = Embedder()
+        self.db = DB()
 
     def set_file_paths(
         self, relative_document_path: str, document_filename: str
@@ -304,16 +338,18 @@ class PdfEmbedder(object):
 
             document = pymupdf.open(self.absolute_finished_document_path)
 
-        text = " ".join(self.text_fetcher.run(document))
+        # markdown_document = pymupdf4llm.to_markdown(document)
+        # markdown_document = pymupdf4llm.to_markdown(
+        #     os.path.join(self.absolute_document_path, document_filename)
+        # )
 
-        chunks = self.text_splitter.split_text(text)
+        # self.db.store_markdown_document(markdown_document, document_filename)
 
-        # TODO: Add embedding and DB write - bulk of work is done though
+        document_text = " ".join(self.text_fetcher.run(document))
 
-        # for chunk in chunks:
-        #     embedded_vector=self.embedder.embed_query(chunk)
+        document_name = document_filename.split(".")[0]
 
-        #     #Write chunk to DB
+        self.db.store_text(document_text, document_name)
 
         return
 

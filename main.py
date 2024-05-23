@@ -6,7 +6,10 @@ import numpy as np
 
 import pymupdf
 
-from argparse import ArgumentParser
+from langchain.text_splitter import CharacterTextSplitter
+from langchain_community.embeddings import HuggingFaceEmbeddings
+
+import argparse
 
 ###EXTRACTION MINIMUM PX SIZES
 MIN_PX_HEIGHT = 20
@@ -20,24 +23,6 @@ FIGURE_X_GROUPING_ADJACENCY_PX = 3
 FIGURE_Y_GROUPING_ADJACENCY_PX = 3
 
 
-def get_class_leaves(cls: object) -> list[object]:
-    """Gets all subclasses with no subclasses of their own
-
-    Args:
-        cls (object): Any class
-
-    Returns:
-        list[object]: list of classes
-    """
-    subclasses = []
-
-    for subclass in cls.__subclasses__():
-        if subclass.__subclasses__():
-            return subclasses.extend(subclass.__subclasses__())
-        else:
-            return subclass
-
-
 class Extractor(ABC):
 
     @abstractmethod
@@ -47,10 +32,18 @@ class Extractor(ABC):
 
 class Fetcher(Extractor):
 
-    def run(self, document: pymupdf.Document):
+    def run(self, document: pymupdf.Document) -> list:
+        """Returns a list of fetched things for each page
+
+        Args:
+            document (pymupdf.Document): Given document to process
+
+        Returns:
+            list: List of things where each element is a collection of that thing for each page
+        """
         rtn = []
 
-        for page in enumerate(document):
+        for page in document:
             rtn.append(self.fetch(page))
 
         return rtn
@@ -62,9 +55,15 @@ class Fetcher(Extractor):
 
 class TextFetcher(Fetcher):
 
-    def fetch(self, page: pymupdf.Page):
+    def __init__(self):
 
         pass
+
+    def fetch(self, page: pymupdf.Page):
+
+        page_text = page.get_text(sort=True)
+
+        return page_text
 
 
 class Redactor(Extractor):
@@ -106,15 +105,15 @@ class ImageRedactor(Redactor):
     folder_name = "images"
 
     def __init__(self, relative_output_folder_path):
-        self.relative_output_folder_path = os.join(
+        self.relative_output_folder_path = os.path.join(
             relative_output_folder_path, ImageRedactor.folder_name
         )
 
-    def save_and_redact(self, page, page_index):
+    def save_and_redact(self, page, page_index, use_absolute_file_path=True):
         page_name = f"page {page_index+1}"
 
-        image_blocks = [
-            block
+        image_blocks = [  # I'm using image blocks instead of pymupdf.Page.get_images()
+            block  # because it can extract inline images too
             for block in page.get_text("dict", sort=True)["blocks"]
             if block["type"] == 1
         ]
@@ -156,9 +155,13 @@ class ImageRedactor(Redactor):
             with open(absolute_image_file_path, "wb") as file:
                 file.write(image_data)
 
-            page.add_redact_annot(
-                image_bbox, text=relative_image_file_path, cross_out=False
+            annotation_text = (
+                absolute_image_file_path
+                if use_absolute_file_path
+                else relative_image_file_path
             )
+
+            page.add_redact_annot(image_bbox, text=annotation_text, cross_out=False)
 
         page.apply_redactions(1, 2, 1)
 
@@ -170,11 +173,11 @@ class FigureRedactor(Redactor):
     folder_name = "figures"
 
     def __init__(self, relative_output_folder_path):
-        self.relative_output_folder_path = os.join(
+        self.relative_output_folder_path = os.path.join(
             relative_output_folder_path, FigureRedactor.folder_name
         )
 
-    def save_and_redact(self, page, page_index):
+    def save_and_redact(self, page, page_index, use_absolute_file_path=True):
         page_name = f"page {page_index+1}"
 
         figures = [
@@ -210,9 +213,13 @@ class FigureRedactor(Redactor):
 
             figure_pixmap.pil_save(absolute_figure_file_path)
 
-            page.add_redact_annot(
-                figure, text=relative_figure_file_path, cross_out=False
+            annotation_text = (
+                absolute_figure_file_path
+                if use_absolute_file_path
+                else relative_figure_file_path
             )
+
+            page.add_redact_annot(figure, text=annotation_text, cross_out=False)
 
         page.apply_redactions(1, 2, 1)
 
@@ -222,15 +229,30 @@ class FigureRedactor(Redactor):
 class PdfChunker(object):
 
     def __init__(self, args):
-        self.manuals_folder = args.manuals_folder
+        self.documents = args.documents
         self.redo = args.redo_processed_manuals
         self.output_folder_prefix = args.output_folder
 
-        self.redactor_classes = get_class_leaves(Redactor)
+        self.text_fetcher = TextFetcher()
+
+        self.text_splitter = CharacterTextSplitter(
+            separator="\n", chunk_size=1000, chunk_overlap=200, length_function=len
+        )
+
+        self.embedder = HuggingFaceEmbeddings()
 
     def set_file_paths(
         self, relative_document_path: str, document_filename: str
     ) -> None:
+        """Inits filepaths to where the input pdf is
+        and where the finished product and the extracted
+        content is saved
+
+        Args:
+            relative_document_path (str): _description_
+            document_filename (str): _description_
+        """
+
         document_name = document_filename.split(".")[0]
 
         self.absolute_document_path = os.path.abspath(relative_document_path)
@@ -254,6 +276,7 @@ class PdfChunker(object):
     def process_document(
         self, relative_document_path: str, document_filename: str
     ) -> None:
+
         self.set_file_paths(relative_document_path, document_filename)
 
         if not os.path.exists(self.absolute_output_folder_path) or self.redo:
@@ -261,36 +284,45 @@ class PdfChunker(object):
 
             os.makedirs(self.absolute_output_folder_path, exist_ok=True)
 
-            document = pymupdf.open(self.absolute_document_path)
-
+            document = pymupdf.open(
+                os.path.join(self.absolute_document_path, document_filename)
+            )
             redactors = [
-                cls.__init__(self.relative_output_folder_path)
-                for cls in self.redactor_classes
+                ImageRedactor(self.relative_output_folder_path),
+                FigureRedactor(self.relative_output_folder_path),
             ]
 
-            for redactors in redactors:
-                redactors.run(document)
+            for redactor in redactors:
+                redactor.run(document)
 
             document.save(self.absolute_finished_document_path)
+
         else:
             print(f"========{document_filename} already processed========")
+
+            document = pymupdf.open(self.absolute_finished_document_path)
+
+        text = " ".join(self.text_fetcher.run(document))
+
+        chunks = self.text_splitter.split_text(text)
+
+        # TODO: Add embedding and DB write - bulk of work is done though
 
         return
 
     def run(self):
+        if os.path.isfile(os.path.abspath(self.documents)):
+            assert self.documents[-4:] == ".pdf"
 
-        manual_filenames = [
-            file
-            for file in os.listdir(self.manuals_folder)
-            if file.split(".")[-1] == "pdf"  # Get PDF extension files only
-        ]
-
-        assert manual_filenames, "no manuals to process"
-
-        for manual_filename in manual_filenames:
-
-            relative_manual_path = os.path.join(self.manuals_folder, manual_filename)
-            absolute_manual_path = os.path.abspath(relative_manual_path)
+            self.process_document(
+                os.path.dirname(self.documents), os.path.basename(self.documents)
+            )
+        else:
+            for document_filename in os.listdir(self.documents):
+                if document_filename[-4:] == ".pdf":
+                    self.process_document(self.documents, document_filename)
+                else:
+                    print(f"Skipping {document_filename}, not a PDF")
 
 
 def main(args):
@@ -302,16 +334,15 @@ def main(args):
 
 if __name__ == "__main__":
 
-    parser = ArgumentParser()
+    parser = argparse.ArgumentParser()
 
-    parser.add_argument("-m", "--manuals-folder", dest="manuals_folder", required=True)
+    parser.add_argument("-d", "--documents(s)", dest="documents", required=True)
 
     parser.add_argument(
         "-r",
         "--redo-processed-manuals",
         dest="redo_processed_manuals",
-        type=bool,
-        default=False,
+        action=argparse.BooleanOptionalAction,
     )
 
     parser.add_argument(

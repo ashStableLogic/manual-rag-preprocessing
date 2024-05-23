@@ -11,3 +11,4 @@ test_output
 *.zip*
 *Zone.Identifier
 document-loader.py
+documents

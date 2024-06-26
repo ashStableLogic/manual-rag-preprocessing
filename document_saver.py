@@ -1,23 +1,16 @@
 from abc import ABC, abstractmethod
 
 import os
+from pathlib import Path
 
 import numpy as np
 
 import pymupdf
 import pymupdf4llm
 
-# I don't have any openAI keys,
-# so I used the HuggingFace embedder as a placeholder
-# from langchain.text_splitter import CharacterTextSplitter as TextSplitter
-
-from langchain.text_splitter import CharacterTextSplitter as TextSplitter
-
-from langchain_community.embeddings import HuggingFaceEmbeddings as Embedder
-
-import psycopg2
-
 import argparse
+
+from database import Database
 
 ###EXTRACTION MINIMUM PX SIZES
 MIN_IMG_PX_HEIGHT = 20
@@ -29,6 +22,8 @@ ZOOM_MAT = pymupdf.Matrix(ZOOM_X, ZOOM_Y)
 
 FIGURE_X_GROUPING_ADJACENCY_PX = 3
 FIGURE_Y_GROUPING_ADJACENCY_PX = 3
+
+PER_PAGE_GRAPHICS_LIMIT = 10000
 
 
 class Extractor(ABC):
@@ -76,6 +71,10 @@ class TextFetcher(Fetcher):
 
 class Redactor(Extractor):
 
+    def __init__(self, apply_redactions):
+
+        self.apply_redactions = apply_redactions
+
     def run(self, document: pymupdf.Document) -> pymupdf.Document:
         """Iterates through document pages, extracting object type from them
 
@@ -112,7 +111,9 @@ class ImageRedactor(Redactor):
 
     folder_name = "images"
 
-    def __init__(self, relative_output_folder_path):
+    def __init__(self, relative_output_folder_path, apply_redactions=False):
+        super().__init__(apply_redactions)
+
         self.relative_output_folder_path = os.path.join(
             relative_output_folder_path, ImageRedactor.folder_name
         )
@@ -171,7 +172,8 @@ class ImageRedactor(Redactor):
 
             page.add_redact_annot(image_bbox, text=annotation_text, cross_out=False)
 
-        page.apply_redactions(1, 2, 1)
+        if self.apply_redactions:
+            page.apply_redactions(1, 2, 1)
 
         return page
 
@@ -180,7 +182,9 @@ class FigureRedactor(Redactor):
 
     folder_name = "figures"
 
-    def __init__(self, relative_output_folder_path):
+    def __init__(self, relative_output_folder_path, apply_redactions=False):
+        super().__init__(apply_redactions)
+
         self.relative_output_folder_path = os.path.join(
             relative_output_folder_path, FigureRedactor.folder_name
         )
@@ -229,53 +233,24 @@ class FigureRedactor(Redactor):
 
             page.add_redact_annot(figure, text=annotation_text, cross_out=False)
 
-        page.apply_redactions(1, 2, 1)
+        if self.apply_redactions:
+
+            page.apply_redactions(1, 2, 1)
 
         return page
-
-
-class DB(object):
-
-    def __init__(self):
-        self.embedder = Embedder()
-
-        # self.db_connection = psycopg2.connect(
-        #     host="localhost", database="db", user="user", password="password"
-        # )
-        # self.cursor = self.db_connection.cursor()
-
-        self.text_splitter = TextSplitter(
-            separator="\n", chunk_size=1000, chunk_overlap=200, length_function=len
-        )
-
-    def store_text(self, sub_documents, document_name) -> None:
-
-        # insert_query = "INSERT INTO service_manuals_file (file_name) VALUES (%s);"
-        # data_to_insert = (document_name,)
-        # self.cursor.execute(insert_query, data_to_insert)
-        # self.db_connection.commit()
-
-        chunks = self.text_splitter.split_text(sub_documents)
-
-        for chunk in chunks:
-            # embedding = self.embedder.embed_documents(chunk)
-            # insert_query = "INSERT INTO service_manuals_file_data (service_manuals_file_id, text, embedding) VALUES (%s, %s, %s);"
-            # data_to_insert = (document_name, chunk, embedding)
-            # self.cursor.execute(insert_query, data_to_insert)
-
-            print(chunk)
 
 
 class PdfEmbedder(object):
 
     def __init__(self, args):
-        self.documents = args.documents
+        self.document_type = "PDF"
+
+        self.documents_folder = args.documents_folder
         self.redo = args.redo_processed_manuals
-        self.output_folder_prefix = args.output_folder
 
         self.text_fetcher = TextFetcher()
 
-        self.db = DB()
+        self.db = Database()
 
     def set_file_paths(
         self, relative_document_path: str, document_filename: str
@@ -309,63 +284,29 @@ class PdfEmbedder(object):
             self.relative_output_folder_path
         )
 
-    def process_document(
-        self, relative_document_path: str, document_filename: str
-    ) -> None:
+    def process_document(self, absolute_document_path: str) -> None:
 
-        self.set_file_paths(relative_document_path, document_filename)
+        document_filename = os.path.basename(absolute_document_path)[:-4]
 
-        if not os.path.exists(self.absolute_output_folder_path) or self.redo:
-            print(f"========processing {document_filename}========")
+        markdown_document_text = pymupdf4llm.to_markdown(
+            absolute_document_path,
+            write_images=True,
+            dpi=300,
+            margins=0,
+            # graphics_limit=PER_PAGE_GRAPHICS_LIMIT,
+        )
 
-            os.makedirs(self.absolute_output_folder_path, exist_ok=True)
-
-            document = pymupdf.open(
-                os.path.join(self.absolute_document_path, document_filename)
-            )
-            redactors = [
-                ImageRedactor(self.relative_output_folder_path),
-                FigureRedactor(self.relative_output_folder_path),
-            ]
-
-            for redactor in redactors:
-                redactor.run(document)
-
-            document.save(self.absolute_finished_document_path)
-
-        else:
-            print(f"========{document_filename} already processed========")
-
-            document = pymupdf.open(self.absolute_finished_document_path)
-
-        # markdown_document = pymupdf4llm.to_markdown(document)
-        # markdown_document = pymupdf4llm.to_markdown(
-        #     os.path.join(self.absolute_document_path, document_filename)
-        # )
-
-        # self.db.store_markdown_document(markdown_document, document_filename)
-
-        document_text = " ".join(self.text_fetcher.run(document))
-
-        document_name = document_filename.split(".")[0]
-
-        self.db.store_text(document_text, document_name)
+        self.db.store_text(
+            markdown_document_text, document_filename, self.document_type
+        )
 
         return
 
     def run(self):
-        if os.path.isfile(os.path.abspath(self.documents)):
-            assert self.documents[-4:] == ".pdf"
 
-            self.process_document(
-                os.path.dirname(self.documents), os.path.basename(self.documents)
-            )
-        else:
-            for document_filename in os.listdir(self.documents):
-                if document_filename[-4:] == ".pdf":
-                    self.process_document(self.documents, document_filename)
-                else:
-                    print(f"Skipping {document_filename}, not a PDF")
+        for file_path in Path(self.documents_folder).rglob("*.pdf"):
+
+            self.process_document(file_path)
 
 
 def main(args):
@@ -385,7 +326,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("-d", "--documents(s)", dest="documents", required=True)
+    parser.add_argument(
+        "-d", "--documents-folder", dest="documents_folder", required=True
+    )
 
     parser.add_argument(
         "-r",

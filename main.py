@@ -20,8 +20,8 @@ import psycopg2
 import argparse
 
 ###EXTRACTION MINIMUM PX SIZES
-MIN_PX_HEIGHT = 20
-MIN_PX_WIDTH = 20
+MIN_IMG_PX_HEIGHT = 20
+MIN_IMG_PX_WIDTH = 20
 
 ###FIGURE EXTRACTION CONSTS
 ZOOM_X, ZOOM_Y = 2.0, 2.0  # This stops image resolution from being quartered
@@ -131,8 +131,8 @@ class ImageRedactor(Redactor):
         image_blocks = [
             image_block
             for image_block in image_blocks
-            if image_block["height"] > MIN_PX_HEIGHT
-            and image_block["width"] > MIN_PX_WIDTH
+            if image_block["height"] > MIN_IMG_PX_HEIGHT
+            and image_block["width"] > MIN_IMG_PX_WIDTH
         ]
 
         if image_blocks:
@@ -191,7 +191,7 @@ class FigureRedactor(Redactor):
         figures = [
             figure
             for figure in page.cluster_drawings()
-            if figure.height > MIN_PX_HEIGHT and figure.width > MIN_PX_WIDTH
+            if figure.height > MIN_IMG_PX_HEIGHT and figure.width > MIN_IMG_PX_WIDTH
         ]
 
         if figures:
@@ -263,7 +263,7 @@ class DB(object):
             # data_to_insert = (document_name, chunk, embedding)
             # self.cursor.execute(insert_query, data_to_insert)
 
-            pass
+            print(chunk)
 
 
 class PdfEmbedder(object):

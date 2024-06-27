@@ -14,8 +14,6 @@ class Database(object):
 
     def __init__(self):
 
-        self.k_num = 5
-
         self.embedder = Embedder()
 
         self.document_insert_string = "INSERT INTO documents (document_name,document_type) VALUES (%s,%s) RETURNING document_id;"
@@ -71,12 +69,20 @@ class Database(object):
 
         self.conn.commit()
 
-    # def query(self, query_text) -> str:
+    def get_k_relavent_embeddings(self, question, k_num=5) -> str:
 
-    #     select_query = (
-    #         "SELECT FROM embeddings ORDER BY embedding <-> (%s) LIMIT {self.k_num}"
-    #     )
+        question_select_string = f"SELECT embedding FROM embeddings ORDER BY embedding <-> (%s) LIMIT {k_num}"
 
-    #     embedded_query = np.array(self.embedder([query_text]))
+        embedded_question = np.array(self.embedder.embed_query(question))
 
-    #     data_to_insert=
+        data_to_insert = (embedded_question,)
+
+        self.cursor.execute(question_select_string, data_to_insert)
+
+        top_k_embeddings = self.cursor.fetchall()
+
+        return top_k_embeddings
+
+    def get_most_relavent_embeddings(self, question):
+
+        return self.get_k_relavent_embeddings(question, k_num=1)[0]

@@ -37,7 +37,7 @@ class Database(object):
 
         self.embedder = Embedder()
 
-    def store_text(self, document_text, document_name, document_type) -> None:
+    def store_content(self, document_text, document_name, document_type) -> None:
 
         data_to_insert = (
             document_name,
@@ -69,9 +69,11 @@ class Database(object):
 
         self.conn.commit()
 
-    def get_k_relavent_embeddings(self, question, k_num=5) -> str:
+    def get_k_relavent_chunks(self, question, k_num=5) -> list[str]:
 
-        question_select_string = f"SELECT embedding FROM embeddings ORDER BY embedding <-> (%s) LIMIT {k_num}"
+        question_select_string = (
+            f"SELECT chunk FROM embeddings ORDER BY embedding <-> (%s) LIMIT {k_num}"
+        )
 
         embedded_question = np.array(self.embedder.embed_query(question))
 
@@ -79,10 +81,10 @@ class Database(object):
 
         self.cursor.execute(question_select_string, data_to_insert)
 
-        top_k_embeddings = self.cursor.fetchall()
+        top_k_chunks = self.cursor.fetchall()
 
-        return top_k_embeddings
+        return top_k_chunks
 
-    def get_most_relavent_embeddings(self, question):
+    def get_most_relavent_chunk(self, question) -> str:
 
-        return self.get_k_relavent_embeddings(question, k_num=1)[0]
+        return self.get_k_relavent_chunks(question, k_num=1)[0]

@@ -12,3 +12,4 @@ test_output
 *Zone.Identifier
 document-loader.py
 documents
+.env

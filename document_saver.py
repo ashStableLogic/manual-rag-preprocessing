@@ -296,8 +296,11 @@ class PdfEmbedder(object):
             # graphics_limit=PER_PAGE_GRAPHICS_LIMIT,
         )
 
-        self.db.store_text(
-            markdown_document_text, document_filename, self.document_type
+        self.db.store_content(
+            markdown_document_text,
+            absolute_document_path,
+            document_filename,
+            self.document_type,
         )
 
         return

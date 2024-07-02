@@ -5,7 +5,7 @@
 /xref output
 /block output
 /temp
-test_manuals
+test_documents
 extract_one_pdf_page.py
 test_output
 *.zip*

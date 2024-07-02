@@ -242,13 +242,12 @@ class FigureRedactor(Redactor):
 
 class PdfEmbedder(object):
 
-    def __init__(self, args):
-        self.document_type = "PDF"
+    document_type = "PDF"
 
-        self.documents_folder = args.documents_folder
-        self.redo = args.redo_processed_manuals
+    def __init__(self, documents_folder: str, redo: bool):
 
-        self.text_fetcher = TextFetcher()
+        self.documents_folder = documents_folder
+        self.redo = redo
 
         self.db = Database()
 
@@ -288,6 +287,8 @@ class PdfEmbedder(object):
 
         document_filename = os.path.basename(absolute_document_path)[:-4]
 
+        print(f"processing: {document_filename}")
+
         markdown_document_text = pymupdf4llm.to_markdown(
             absolute_document_path,
             write_images=True,
@@ -309,12 +310,16 @@ class PdfEmbedder(object):
 
         for file_path in Path(self.documents_folder).rglob("*.pdf"):
 
-            self.process_document(file_path)
+            self.process_document(os.path.abspath(file_path))
 
 
 def main(args):
 
-    pdf_embedder = PdfEmbedder(args)
+    documents_folder = args.documents_folder
+
+    redo = args.redo
+
+    pdf_embedder = PdfEmbedder(documents_folder, redo)
 
     pdf_embedder.run()
 
@@ -336,7 +341,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-r",
         "--redo-processed-manuals",
-        dest="redo_processed_manuals",
+        dest="redo",
         action=argparse.BooleanOptionalAction,
     )
 

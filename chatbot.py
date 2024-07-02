@@ -9,7 +9,7 @@ from transformers import (
 )
 
 import os
-import dotenv
+from dotenv import load_dotenv
 
 from openai import OpenAI
 
@@ -26,10 +26,10 @@ class Chatbot(object):
         self.prompt = [
             {
                 "role": "system",
-                "content": """Using the information contained in the context,
+                "content": """Using the information contained in the context based around text from an instruction manual and optionally a summary of the most relavent image,
         give a comprehensive answer to the question.
         Respond only to the question asked, response should be concise and relevant to the question.
-        Provide the number of the source document when relevant.
+        Provide the number of the source document when relevant. Reference the image when possible.
         If the answer cannot be deduced from the context, do not give an answer.""",
             },
             {
@@ -47,13 +47,25 @@ class Chatbot(object):
 
     def get_context(self, question: str) -> str:
 
-        most_relavent_context = self.db.get_most_relavent_chunk(question)
+        most_relevant_chunk = self.db.get_most_relavent_chunk(question)
 
-        return most_relavent_context
+        most_relavent_image_path, most_relavent_summary = (
+            self.db.get_most_relevant_image_paths_and_summary(question)
+        )
+
+        return most_relevant_chunk, most_relavent_summary, most_relavent_image_path
 
     def ask(self, question):
 
-        context = self.get_context(question)
+        chunk, image_summary, image_path = self.get_context(question)
+
+        if image_summary != None:
+
+            context = chunk + "\n" + image_summary
+        else:
+            context = chunk
+
+        print(image_path)
 
         prompt = self.prompt.copy()
 
@@ -71,7 +83,7 @@ class Chatbot(object):
 
 
 def main():
-    dotenv.load_dotenv()
+    load_dotenv()
 
     chatbot = Chatbot()
 

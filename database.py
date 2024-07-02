@@ -232,11 +232,11 @@ class Database(object):
         return top_k_chunks
 
     def get_most_relavent_chunk(self, question) -> str:
-        return self.get_k_relavent_chunks(question, k_num=1)[0]
+        return self.get_k_relavent_chunks(question, k_num=1)[0][0]
 
     def get_most_relevant_image_paths_and_summaries(self, question, k_num=5):
 
-        question_select_string = f"SELECT image_path,image_summary FROM images ORDER BY embedding <-> (%s) LIMIT {k_num}"
+        question_select_string = f"SELECT image_filepath,image_summary FROM images ORDER BY embedding <-> (%s) LIMIT {k_num}"
 
         embedded_question = np.array(self.embedder.embed_query(question))
 

@@ -244,44 +244,9 @@ class PdfEmbedder(object):
 
     document_type = "PDF"
 
-    def __init__(self, documents_folder: str, redo: bool):
-
-        self.documents_folder = documents_folder
-        self.redo = redo
+    def __init__(self):
 
         self.db = Database()
-
-    def set_file_paths(
-        self, relative_document_path: str, document_filename: str
-    ) -> None:
-        """Inits filepaths to where the input pdf is
-        and where the finished product and the extracted
-        content is saved
-
-        Args:
-            relative_document_path (str): _description_
-            document_filename (str): _description_
-        """
-
-        document_name = document_filename.split(".")[0]
-
-        self.absolute_document_path = os.path.abspath(relative_document_path)
-
-        relative_finished_document_path = os.path.join(
-            self.output_folder_prefix, document_name, document_filename
-        )
-
-        self.absolute_finished_document_path = os.path.abspath(
-            relative_finished_document_path
-        )
-
-        self.relative_output_folder_path = os.path.join(
-            self.output_folder_prefix, document_name
-        )
-
-        self.absolute_output_folder_path = os.path.abspath(
-            self.relative_output_folder_path
-        )
 
     def process_document(self, absolute_document_path: str) -> None:
 
@@ -306,9 +271,9 @@ class PdfEmbedder(object):
 
         return
 
-    def run(self):
+    def run(self, documents_folder: str):
 
-        for file_path in Path(self.documents_folder).rglob("*.pdf"):
+        for file_path in Path(documents_folder).rglob("*.pdf"):
 
             self.process_document(os.path.abspath(file_path))
 
@@ -317,36 +282,21 @@ def main(args):
 
     documents_folder = args.documents_folder
 
-    redo = args.redo
+    pdf_embedder = PdfEmbedder()
 
-    pdf_embedder = PdfEmbedder(documents_folder, redo)
-
-    pdf_embedder.run()
+    pdf_embedder.run(documents_folder)
 
 
 if __name__ == "__main__":
     """USAGE IS
     python main.py
     -d "Path to single document or folder"
-    -r "add switch if you want to redo already processed documents"
-    -o "output folder path"
     """
 
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
         "-d", "--documents-folder", dest="documents_folder", required=True
-    )
-
-    parser.add_argument(
-        "-r",
-        "--redo-processed-manuals",
-        dest="redo",
-        action=argparse.BooleanOptionalAction,
-    )
-
-    parser.add_argument(
-        "-o", "--output-folder", dest="output_folder", type=str, default="output"
     )
 
     args = parser.parse_args()

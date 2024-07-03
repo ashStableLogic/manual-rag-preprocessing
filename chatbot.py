@@ -13,12 +13,13 @@ from dotenv import load_dotenv
 
 from openai import OpenAI
 
-from langchain_community.embeddings import HuggingFaceEmbeddings as Embedder
+from langchain_huggingface.embeddings import HuggingFaceEmbeddings as Embedder
 
 
 class Chatbot(object):
 
     def __init__(self) -> None:
+        load_dotenv()
 
         self.db = Database()
         self.embedder = Embedder()
@@ -47,25 +48,26 @@ class Chatbot(object):
 
     def get_context(self, question: str) -> str:
 
-        most_relevant_chunk = self.db.get_most_relavent_chunk(question)
+        most_relevant_chunk_id, most_relevant_chunk = self.db.get_most_relavent_chunk(
+            question
+        )
 
-        most_relavent_image_path, most_relavent_summary = (
-            self.db.get_most_relevant_image_paths_and_summary(question)
+        most_relevant_image_id, most_relavent_image_path, most_relavent_summary = (
+            self.db.get_most_relevant_image_paths_and_summary(
+                question, most_relevant_chunk_id
+            )
         )
 
         return most_relevant_chunk, most_relavent_summary, most_relavent_image_path
 
-    def ask(self, question):
+    def ask(self, question: str) -> str:
 
         chunk, image_summary, image_path = self.get_context(question)
 
         if image_summary != None:
-
             context = chunk + "\n" + image_summary
         else:
             context = chunk
-
-        print(image_path)
 
         prompt = self.prompt.copy()
 
@@ -79,16 +81,14 @@ class Chatbot(object):
 
         answer = response.choices[0].message.content
 
-        return answer
+        return answer, image_path
 
 
 def main():
-    load_dotenv()
-
     chatbot = Chatbot()
 
     while True:
-        question = input("\nAsk a question about CDJ-3000 or R4731 1:\t")
+        question = input("\nAsk a question about a product:\n\n")
 
         answer = chatbot.ask(question)
 

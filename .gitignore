@@ -6,6 +6,7 @@
 /block output
 /temp
 test_documents
+LLaVA/
 extract_one_pdf_page.py
 test_output
 *.zip*

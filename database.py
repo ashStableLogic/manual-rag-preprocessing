@@ -1,6 +1,4 @@
-# I don't have any openAI keys,
-# so I used the HuggingFace embedder as a placeholder
-from langchain_community.embeddings import HuggingFaceEmbeddings as Embedder
+from langchain_huggingface.embeddings import HuggingFaceEmbeddings as Embedder
 
 from langchain.text_splitter import CharacterTextSplitter as TextSplitter
 
@@ -26,11 +24,11 @@ import os
 
 import requests
 
-VISION_MODEL_NAME = "gpt-4-turbo"
+VISION_MODEL_NAME = "gpt-4o"
 
 ###EXTRACTION MINIMUM PX SIZES
-MIN_IMG_PX_HEIGHT = 20
-MIN_IMG_PX_WIDTH = 20
+MIN_IMG_PX_HEIGHT = 100
+MIN_IMG_PX_WIDTH = 100
 
 
 class Database(object):
@@ -40,18 +38,6 @@ class Database(object):
         openai_api_key = os.getenv("OPENAI_API_KEY")
 
         self.embedder = Embedder()
-
-        # (
-        #     self.image_question_tokenizer,
-        #     self.image_model,
-        #     self.image_processor,
-        #     self.image_question_context_len,
-        # ) = load_pretrained_model(
-        #     model_path=IMAGE_SUMMARY_MODEL_PATH,
-        #     model_base=None,
-        #     model_name=get_model_name_from_path(IMAGE_SUMMARY_MODEL_PATH),
-        #     device="cpu",
-        # )
 
         self.image_summary_header = {
             "Content-Type": "application/json",
@@ -84,13 +70,14 @@ class Database(object):
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": "data:image/png;base64,{base64_image}"
+                                "url": "data:image/png;base64,{base64_image}",
+                                "detail": "low",
                             },
                         },
                     ],
                 },
             ],
-            "max_tokens": 100,
+            "max_tokens": 50,
         }
 
         self.openai_client = OpenAI()
@@ -193,6 +180,8 @@ class Database(object):
                 for image_name in re.findall(r"\[(.*\.png)\]\(\1\)", chunk)
             ]
 
+            self.conn.commit()
+
             for image_path in image_paths_in_chunk:
 
                 height, width = cv2.imread(image_path, 0).shape[:2]
@@ -213,13 +202,11 @@ class Database(object):
 
                     self.cursor.execute(self.image_insert_string, image_data_to_insert)
 
-        self.conn.commit()
+                    self.conn.commit()
 
     def get_k_relavent_chunks(self, question, k_num=5):
 
-        question_select_string = (
-            f"SELECT chunk FROM chunks ORDER BY embedding <-> (%s) LIMIT {k_num}"
-        )
+        question_select_string = f"SELECT chunk_id,chunk FROM chunks ORDER BY embedding <-> (%s) LIMIT {k_num}"
 
         embedded_question = np.array(self.embedder.embed_query(question))
 
@@ -232,15 +219,18 @@ class Database(object):
         return top_k_chunks
 
     def get_most_relavent_chunk(self, question) -> str:
-        return self.get_k_relavent_chunks(question, k_num=1)[0][0]
+        return self.get_k_relavent_chunks(question, k_num=1)[0]
 
-    def get_most_relevant_image_paths_and_summaries(self, question, k_num=5):
+    def get_most_relevant_image_paths_and_summaries(self, question, chunk_ids, k_num=5):
 
-        question_select_string = f"SELECT image_filepath,image_summary FROM images ORDER BY embedding <-> (%s) LIMIT {k_num}"
+        question_select_string = f"SELECT image_id,image_filepath,image_summary FROM images WHERE chunk_id IN (%s) ORDER BY embedding <-> (%s) LIMIT {k_num}"
 
         embedded_question = np.array(self.embedder.embed_query(question))
 
-        data_to_insert = (embedded_question,)
+        data_to_insert = (
+            chunk_ids,
+            embedded_question,
+        )
 
         self.cursor.execute(question_select_string, data_to_insert)
 
@@ -248,5 +238,8 @@ class Database(object):
 
         return top_k_images_and_summaries
 
-    def get_most_relevant_image_paths_and_summary(self, question) -> str:
-        return self.get_most_relevant_image_paths_and_summaries(question, k_num=1)[0]
+    def get_most_relevant_image_paths_and_summary(self, question, chunk_id) -> str:
+
+        return self.get_most_relevant_image_paths_and_summaries(
+            question, tuple([chunk_id]), k_num=1
+        )[0]

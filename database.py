@@ -1,6 +1,6 @@
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings as Embedder
 
-from langchain.text_splitter import CharacterTextSplitter as TextSplitter
+from langchain.text_splitter import MarkdownTextSplitter as TextSplitter
 
 from pgvector.psycopg2 import register_vector
 import psycopg2
@@ -33,7 +33,7 @@ MIN_IMG_PX_WIDTH = 100
 
 class Database(object):
 
-    def __init__(self):
+    def __init__(self) -> None:
 
         openai_api_key = os.getenv("OPENAI_API_KEY")
 
@@ -93,23 +93,31 @@ class Database(object):
         self.cursor = self.conn.cursor()
 
         self.cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        
+        
+        # self.cursor.execute("CREATE INDEX IF NOT EXISTS ON chunks USING hnsw (embedding vector_l2_ops)")
+        # Make an index AFTER loading in tons of data.
+        
+        ###index uses L2 distance (RMS), so use <-> operator ONLY in select statements (at least for chunks ^)
 
         self.conn.commit()
 
         register_vector(conn_or_curs=self.cursor)
 
         self.text_splitter = TextSplitter(
-            separator="\n", chunk_size=1000, chunk_overlap=200, length_function=len
+            chunk_size=1000, chunk_overlap=200, length_function=len
         )
 
         self.embedder = Embedder()
 
-    def get_b64_image(self, image_path):
+        return
+
+    def get_b64_image(self, image_path: str) -> str:
 
         with open(image_path, "rb") as image_file:
             return base64.b64encode(image_file.read()).decode("utf-8")
 
-    def summarise_image(self, image_path, context):
+    def summarise_image(self, image_path: str, context: str) -> dict:
 
         image_summary_payload = self.image_summary_payload_template.copy()
 
@@ -138,7 +146,11 @@ class Database(object):
         return answer
 
     def store_content(
-        self, document_text, absolute_document_path, document_name, document_type
+        self,
+        document_text: str,
+        absolute_document_path: str,
+        document_name: str,
+        document_type: str,
     ) -> None:
 
         folder_path = os.path.dirname(absolute_document_path)
@@ -204,7 +216,9 @@ class Database(object):
 
                     self.conn.commit()
 
-    def get_k_relavent_chunks(self, question, k_num=5):
+        return
+
+    def get_k_relavent_chunks(self, question: str, k_num: int = 5) -> list[tuple[str]]:
 
         question_select_string = f"SELECT chunk_id,chunk FROM chunks ORDER BY embedding <-> (%s) LIMIT {k_num}"
 
@@ -218,10 +232,12 @@ class Database(object):
 
         return top_k_chunks
 
-    def get_most_relavent_chunk(self, question) -> str:
+    def get_most_relavent_chunk(self, question) -> tuple[str]:
         return self.get_k_relavent_chunks(question, k_num=1)[0]
 
-    def get_most_relevant_image_paths_and_summaries(self, question, chunk_ids, k_num=5):
+    def get_most_relevant_image_paths_and_summaries(
+        self, question: str, chunk_ids: list[str], k_num: int = 5
+    ) -> list[tuple[str]]:
 
         question_select_string = f"SELECT image_id,image_filepath,image_summary FROM images WHERE chunk_id IN (%s) ORDER BY embedding <-> (%s) LIMIT {k_num}"
 
@@ -238,7 +254,9 @@ class Database(object):
 
         return top_k_images_and_summaries
 
-    def get_most_relevant_image_paths_and_summary(self, question, chunk_id) -> str:
+    def get_most_relevant_image_paths_and_summary(
+        self, question: str, chunk_id: str
+    ) -> tuple[str]:
 
         return self.get_most_relevant_image_paths_and_summaries(
             question, tuple([chunk_id]), k_num=1

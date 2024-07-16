@@ -34,8 +34,10 @@ class App(object):
         self.answer_label = ttk.Label(self.response_frame, textvariable=self.answer)
         self.image_label = ttk.Label(self.response_frame)
 
-        self.image_label.grid(column=1, row=0, sticky=(tk.N, tk.S))
         self.answer_label.grid(column=1, row=1, sticky=(tk.N, tk.S))
+
+        self.image_label.grid(column=1, row=0, sticky=(tk.N, tk.S))
+        self.image_label.grid_propagate(False)
 
         self.main_window.columnconfigure(0, weight=1)
         self.main_window.rowconfigure(0, weight=1)

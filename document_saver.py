@@ -295,9 +295,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument(
-        "-d", "--documents-folder", dest="documents_folder", required=True
-    )
+    parser.add_argument("documents_folder")
 
     args = parser.parse_args()
 

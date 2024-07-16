@@ -1,6 +1,6 @@
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings as Embedder
 
-from langchain.text_splitter import MarkdownTextSplitter as TextSplitter
+from langchain_text_splitters import MarkdownTextSplitter as TextSplitter
 
 from pgvector.psycopg2 import register_vector
 import psycopg2

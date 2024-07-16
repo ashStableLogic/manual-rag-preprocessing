@@ -289,8 +289,7 @@ def main(args):
 
 if __name__ == "__main__":
     """USAGE IS
-    python main.py
-    -d "Path to single document or folder"
+    python main.py "Path to single document or folder"
     """
 
     parser = argparse.ArgumentParser()

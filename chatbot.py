@@ -46,17 +46,22 @@ class Chatbot(object):
 
         self.openai_client = OpenAI()
 
-    def get_context(self, question: str) -> str:
+    def get_context(self, question: str) -> tuple[str|None]:
 
         most_relevant_chunk_id, most_relevant_chunk = self.db.get_most_relavent_chunk(
             question
         )
-
-        most_relevant_image_id, most_relavent_image_path, most_relavent_summary = (
-            self.db.get_most_relevant_image_paths_and_summary(
+        
+        most_relevant_image_id=None
+        most_relavent_image_path=None
+        most_relavent_summary=None
+        
+        rtn=self.db.get_most_relevant_image_paths_and_summary(
                 question, most_relevant_chunk_id
             )
-        )
+         
+        if rtn!=None:
+            most_relevant_image_id, most_relavent_image_path, most_relavent_summary=rtn
 
         return most_relevant_chunk, most_relavent_summary, most_relavent_image_path
 
@@ -90,7 +95,11 @@ def main():
     while True:
         question = input("\nAsk a question about a product:\n\n")
 
-        answer = chatbot.ask(question)
+        answer,image_path = chatbot.ask(question)
+        print()
+
+        if image_path!=None:
+            print(f"IMAGE PATH: {image_path}\n")
 
         print(answer)
 

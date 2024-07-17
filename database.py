@@ -7,9 +7,9 @@ import psycopg2
 
 import numpy as np
 
-import re
+from tqdm import tqdm,trange
 
-from dotenv import load_dotenv
+import re
 
 import cv2
 
@@ -18,71 +18,24 @@ import base64
 
 import torch
 
-from openai import OpenAI
-
 import os
 
 import requests
 
-VISION_MODEL_NAME = "gpt-4o"
+VISION_MODEL_NAME = "llava-hf/llava-1.5-7b-hf"
 
 ###EXTRACTION MINIMUM PX SIZES
-MIN_IMG_PX_HEIGHT = 100
-MIN_IMG_PX_WIDTH = 100
+MIN_IMG_PX_HEIGHT = 300
+MIN_IMG_PX_WIDTH = 300
 
 
 class Database(object):
 
     def __init__(self) -> None:
 
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-
         self.embedder = Embedder()
 
-        self.image_summary_header = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {openai_api_key}",
-        }
-
-        self.image_summary_payload_template = {
-            "model": VISION_MODEL_NAME,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": """Using the information contained in the context,
-        give a comprehensive answer to the question.
-        Respond only to the question asked, response should be concise and relevant to the question.
-        Provide the number of the source document when relevant.
-        If the answer cannot be deduced from the context, do not give an answer.""",
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": """Context:
-                    {context}
-                    ---
-                    Now here is the question you need to answer.
-
-                    Question: What does this image show?""",
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": "data:image/png;base64,{base64_image}",
-                                "detail": "low",
-                            },
-                        },
-                    ],
-                },
-            ],
-            "max_tokens": 50,
-        }
-
-        self.openai_client = OpenAI()
-
-        self.document_insert_string = "INSERT INTO documents (document_name,document_type) VALUES (%s,%s) RETURNING document_id;"
+        self.document_insert_string = "INSERT INTO documents (document_name,document_type,product_name) VALUES (%s,%s) RETURNING document_id;"
         self.chunk_insert_string = "INSERT INTO chunks (document_id, chunk, embedding) VALUES (%s, %s, %s) RETURNING chunk_id;"
         self.image_insert_string = "INSERT INTO images (chunk_id,image_name,image_filepath,image_summary,embedding) VALUES (%s,%s,%s,%s,%s) RETURNING image_id"
 
@@ -93,23 +46,47 @@ class Database(object):
         self.cursor = self.conn.cursor()
 
         self.cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        
-        
+
         # self.cursor.execute("CREATE INDEX IF NOT EXISTS ON chunks USING hnsw (embedding vector_l2_ops)")
         # Make an index AFTER loading in tons of data.
-        
-        ###index uses L2 distance (RMS), so use <-> operator ONLY in select statements (at least for chunks ^)
+
+        ###index will use L2 distance (RMS), so use <-> operator ONLY in select statements (at least for chunks ^)
 
         self.conn.commit()
 
         register_vector(conn_or_curs=self.cursor)
 
         self.text_splitter = TextSplitter(
-            chunk_size=1000, chunk_overlap=200, length_function=len
+            chunk_size=500, chunk_overlap=200, length_function=len
         )
 
         self.embedder = Embedder()
 
+        return
+    
+    def init_image_summary_model(self):
+        
+        from transformers import AutoProcessor, LlavaForConditionalGeneration,BitsAndBytesConfig
+    
+        self.llava_image_summary_prompt = "USER: <image>\nSummarize this image using the following context. {context}\nASSISTANT: "
+
+        bnb_config=BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16
+        )
+
+        self.vision_model = LlavaForConditionalGeneration.from_pretrained(
+            VISION_MODEL_NAME,
+            low_cpu_mem_usage=True,
+            torch_dtype=torch.float16,
+            quantization_config=bnb_config,
+            device_map="auto"
+        )
+        
+        self.vision_processor=AutoProcessor.from_pretrained(VISION_MODEL_NAME)
+        
         return
 
     def get_b64_image(self, image_path: str) -> str:
@@ -119,29 +96,19 @@ class Database(object):
 
     def summarise_image(self, image_path: str, context: str) -> dict:
 
-        image_summary_payload = self.image_summary_payload_template.copy()
+        question = self.llava_image_summary_prompt.format(context=context)
 
-        image_summary_payload["messages"][1]["content"][0]["text"] = (
-            image_summary_payload["messages"][1]["content"][0]["text"].format(
-                context=context
-            )
+        image = Image.open(image_path)
+        
+        inputs=self.vision_processor(question,image,return_tensors="pt").to(0,torch.float16)
+
+        output = self.vision_model.generate(
+            **inputs,max_new_tokens=100,do_sample=False
         )
 
-        image_summary_payload["messages"][1]["content"][1]["image_url"][
-            "url"
-        ] = image_summary_payload["messages"][1]["content"][1]["image_url"][
-            "url"
-        ].format(
-            base64_image=self.get_b64_image(image_path)
-        )
-
-        response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers=self.image_summary_header,
-            json=self.image_summary_payload_template,
-        ).json()
-
-        answer = response["choices"][0]["message"]["content"]
+        response=self.vision_processor.decode(output[0][2:],skip_special_tokens=True)
+        
+        answer=response.partition("ASSISTANT:")[-1].replace("\n","")
 
         return answer
 
@@ -151,6 +118,7 @@ class Database(object):
         absolute_document_path: str,
         document_name: str,
         document_type: str,
+        product_name: str
     ) -> None:
 
         folder_path = os.path.dirname(absolute_document_path)
@@ -158,6 +126,7 @@ class Database(object):
         document_data_to_insert = (
             document_name,
             document_type,
+            product_name
         )
 
         self.cursor.execute(
@@ -172,9 +141,14 @@ class Database(object):
         chunks = self.text_splitter.split_text(document_text)
 
         embeddings = self.embedder.embed_documents(chunks)
+        
+        num_chunks=len(chunks)
 
-        for embedding, chunk in zip(embeddings, chunks):
-
+        for idx in trange(num_chunks,desc="Storing data"):
+            
+            embedding=embeddings[idx]
+            chunk=chunks[idx]
+            
             embedding = np.array(embedding)
 
             chunk_data_to_insert = (
@@ -240,6 +214,7 @@ class Database(object):
     ) -> list[tuple[str]]:
 
         question_select_string = f"SELECT image_id,image_filepath,image_summary FROM images WHERE chunk_id IN (%s) ORDER BY embedding <-> (%s) LIMIT {k_num}"
+        # question_select_string = f"SELECT image_id,image_filepath,image_summary FROM images ORDER BY embedding <-> (%s) LIMIT {k_num}"
 
         embedded_question = np.array(self.embedder.embed_query(question))
 
@@ -256,8 +231,13 @@ class Database(object):
 
     def get_most_relevant_image_paths_and_summary(
         self, question: str, chunk_id: str
-    ) -> tuple[str]:
-
-        return self.get_most_relevant_image_paths_and_summaries(
+    ) -> tuple[str]|None:
+        
+        most_rel=self.get_most_relevant_image_paths_and_summaries(
             question, tuple([chunk_id]), k_num=1
-        )[0]
+        )
+        
+        if most_rel:
+            return most_rel[0]
+
+        return

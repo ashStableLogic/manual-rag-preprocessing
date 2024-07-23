@@ -15,6 +15,8 @@ from openai import OpenAI
 
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings as Embedder
 
+import re
+
 
 class Chatbot(object):
 
@@ -30,14 +32,18 @@ class Chatbot(object):
                 "content": """Using the information contained in the context based around text from an instruction manual and optionally a summary of the most relavent image,
         give a comprehensive answer to the question.
         Respond only to the question asked, response should be concise and relevant to the question.
-        Provide the number of the source document when relevant. Reference the image when possible.
-        If the answer cannot be deduced from the context, do not give an answer.""",
+        Provide the number of the source document when relevant. Reference the image when available.
+        If the answer cannot be deduced from the context, do not give an answer.
+        Do not include a source for the context in your answer""",
             },
             {
                 "role": "user",
                 "content": """Context:
         {context}
         ---
+        
+        
+        
         Now here is the question you need to answer.
 
         Question: {question}""",
@@ -46,31 +52,41 @@ class Chatbot(object):
 
         self.openai_client = OpenAI()
 
-    def get_context(self, question: str) -> tuple[str|None]:
+    def get_context(self, question: str) -> tuple[str | None]:
 
         most_relevant_chunk_id, most_relevant_chunk = self.db.get_most_relavent_chunk(
             question
         )
-        
-        most_relevant_image_id=None
-        most_relavent_image_path=None
-        most_relavent_summary=None
-        
-        rtn=self.db.get_most_relevant_image_paths_and_summary(
-                question, most_relevant_chunk_id
-            )
-         
-        if rtn!=None:
-            most_relevant_image_id, most_relavent_image_path, most_relavent_summary=rtn
 
-        return most_relevant_chunk, most_relavent_summary, most_relavent_image_path
+        most_relevant_image_id = None
+        most_relavent_image_path = None
+        most_relavent_summary = None
+
+        rtn = self.db.get_most_relevant_image_paths_and_summary(
+            question, most_relevant_chunk_id
+        )
+
+        if rtn != None:
+            most_relevant_image_id, most_relavent_image_path, most_relavent_summary = (
+                rtn
+            )
+
+        return (
+            most_relevant_chunk,
+            most_relevant_chunk_id,
+            most_relavent_summary,
+            most_relavent_image_path,
+            most_relevant_image_id,
+        )
 
     def ask(self, question: str) -> str:
 
-        chunk, image_summary, image_path = self.get_context(question)
+        chunk, chunk_id, image_summary, image_path, image_id = self.get_context(
+            question
+        )
 
         if image_summary != None:
-            context = chunk + "\n" + image_summary
+            context = chunk + "\nImage Summary:\n" + image_summary
         else:
             context = chunk
 
@@ -86,7 +102,7 @@ class Chatbot(object):
 
         answer = response.choices[0].message.content
 
-        return answer, image_path
+        return answer, image_path, chunk_id, image_id
 
 
 def main():
@@ -95,10 +111,10 @@ def main():
     while True:
         question = input("\nAsk a question about a product:\n\n")
 
-        answer,image_path = chatbot.ask(question)
+        answer, image_path = chatbot.ask(question)
         print()
 
-        if image_path!=None:
+        if image_path != None:
             print(f"IMAGE PATH: {image_path}\n")
 
         print(answer)

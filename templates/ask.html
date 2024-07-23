@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG prototype</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
+</head>
+<body>
+    <div class="center-content">
+        {% if image_returned %}
+        <div class="image-frame">
+            <img src="{{ url_for('static',filename='documents/'+answer_image)}}">
+        </div>
+        {% endif %}
+
+        <div class="answer">
+            <p>{{ answer }}</p>
+        </div>
+
+        <div>
+            <a href="{{ url_for('home') }}"><button class="btn" >Ask another question</button></a>
+        </div>
+    </div>
+</body>
+</html>

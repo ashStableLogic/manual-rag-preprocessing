@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG prototype</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
+</head>
+<body>
+
+    <form class="center-content" action="/ask" method="post">
+        <h1>Ask a question</h1>
+        <div class="form-input-material">
+          <input type="text" name="question" id="question" placeholder="Question" autocomplete="off" class="form-control-material" required />
+        </div>
+        <button type="submit" class="btn btn-primary btn-ghost">ASK</button>
+      </form>
+
+</body>
+</html>

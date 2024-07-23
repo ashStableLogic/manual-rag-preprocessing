@@ -240,22 +240,24 @@ class FigureRedactor(Redactor):
         return page
 
 
-class PdfEmbedder(object):
-
-    document_type = "PDF"
+class MarkdownStore(object):
 
     def __init__(self):
 
         self.db = Database()
         self.db.init_image_summary_model()
 
-    def process_document(self, absolute_document_path: str,current_file_index,num_files) -> None:
+    def process_document(
+        self, absolute_document_path: str, current_file_index, file_type, num_files
+    ) -> None:
 
         document_filename = os.path.basename(absolute_document_path)[:-4]
-        
-        product_name=document_filename
 
-        print(f"==========Processing {current_file_index+1}/{num_files}: {document_filename}==========\n")
+        product_name = document_filename
+
+        print(
+            f"==========Processing {current_file_index+1}/{num_files}: {document_filename}==========\n"
+        )
 
         markdown_document_text = pymupdf4llm.to_markdown(
             absolute_document_path,
@@ -264,39 +266,46 @@ class PdfEmbedder(object):
             margins=0,
             # graphics_limit=PER_PAGE_GRAPHICS_LIMIT,
         )
-        
+
         print("===Finished extracting images===\n")
 
         self.db.store_content(
             markdown_document_text,
             absolute_document_path,
             document_filename,
-            self.document_type,
-            product_name
+            file_type,
+            product_name,
         )
-        
+
         print()
 
         return
 
     def run(self, documents_folder: str):
-        
-        file_paths=list(Path(documents_folder).rglob("*.pdf"))
-        
-        num_files=len(file_paths)
 
-        for current_file_index,file_path in enumerate(file_paths):
-            
-            self.process_document(os.path.abspath(file_path),current_file_index,num_files)
+        file_paths = list(Path(documents_folder).rglob("(*.pdf)|(*.html)"))
+
+        num_files = len(file_paths)
+
+        for current_file_index, file_path in enumerate(file_paths):
+
+            file_type = file_path.partition(".")[-1]
+
+            self.process_document(
+                os.path.abspath(file_path),
+                current_file_index,
+                file_type,
+                num_files,
+            )
 
 
 def main(args):
 
     documents_folder = args.documents_folder
 
-    pdf_embedder = PdfEmbedder()
+    store = MarkdownStore()
 
-    pdf_embedder.run(documents_folder)
+    store.run(documents_folder)
 
 
 if __name__ == "__main__":
